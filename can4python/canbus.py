@@ -53,16 +53,20 @@ class CanBus():
       timeout (numerical): Timeout value in seconds for :meth:`.recv_next_signals()`. Defaults
         to :const:`None` (blocking read).
       use_bcm (bool): True if the SocketCan Broadcast manager (BCM) should be used. Defaults to False.
+      use_this_caninterface (object): The class with witch the library should interact with. Defaults to None.
 
     """
-    def __init__(self, config, interfacename, timeout=None, use_bcm=False):
+    def __init__(self, config, interfacename, timeout=None, use_bcm=False, use_this_custom_caninterface=None):
 
         # Read-only properties
         self._configuration = config
         self._use_bcm = use_bcm
+        self._use_custom_interface = use_this_custom_caninterface is not None
 
         # Initialize CAN interface
-        if self._use_bcm:
+        if self._use_custom_interface:
+            self.caninterface = use_this_custom_caninterface
+        elif self._use_bcm:
             self.caninterface = caninterface_bcm.SocketCanBcmInterface(str(interfacename), timeout)
         else:
             self.caninterface = caninterface_raw.SocketCanRawInterface(str(interfacename), timeout)
@@ -102,7 +106,8 @@ class CanBus():
         logging.debug("Initialized {}".format(repr(self)))
 
     @classmethod
-    def from_kcd_file(cls, filename, interfacename, timeout=None, busname=None, use_bcm=False, ego_node_ids=None):
+    def from_kcd_file(cls, filename, interfacename, timeout=None, busname=None, use_bcm=False,
+                      use_this_caninterface=None, ego_node_ids=None):
         """
         Create a :class:`.CanBus`, using settings from a configuration file.
 
@@ -116,18 +121,24 @@ class CanBus():
           busname (str or None): Which bus name in the messagedefinitions file to use. Defaults
             to :const:`None` (using first alphabetically).
           use_bcm (bool): True if the SocketCan Broadcast manager (BCM) should be used. Defaults to False.
+          use_this_caninterface (object): The class with witch the library should interact with. Defaults to None.
           ego_node_ids (set of strings): Set of nodes that this program will enact. You can also pass it a list.
 
         """
         config = filehandler_kcd.FilehandlerKcd.read(filename, busname)
         config.ego_node_ids = ego_node_ids
-        return cls(config, interfacename, timeout, use_bcm)
+        return cls(config, interfacename, timeout, use_bcm, use_this_caninterface)
 
     def __repr__(self):
         protocol_string = "BCM" if self._use_bcm else "RAW"
+        if self._use_custom_interface:
+            protocol_string += "-OTHER"
         return "CAN bus '{}' on CAN interface: {}, having {} frameIDs defined. Protocol {}".format(
             self._configuration.busname, self.caninterface._interfacename,
             len(self._configuration.framedefinitions), protocol_string)
+
+    def close(self):
+        self.caninterface.close()
 
     @property
     def config(self):
@@ -138,6 +149,11 @@ class CanBus():
     def use_bcm(self):
         """Return True if BCM is used (read-only). Is set in the constructor."""
         return self._use_bcm
+
+    @property
+    def use_custom_interface(self):
+        """Return True if an custom CAN interface is used than the default one (read-only). Is set in the constructor."""
+        return self._use_custom_interface
 
     def init_reception(self):
         """Setup the CAN frame reception.
